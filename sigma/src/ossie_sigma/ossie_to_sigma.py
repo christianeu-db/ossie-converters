@@ -34,7 +34,7 @@ from ossie import (
 )
 
 from ossie_sigma.converter_issues import ConverterIssue, ConverterIssueType, ConverterResult
-from ossie_sigma.expression_utils import ansi_sql_text, infer_single_dataset_qualifier, sigma_dialect_text
+from ossie_sigma.expression_utils import infer_single_dataset_qualifier, sigma_dialect_text, sql_text
 from ossie_sigma.sigma_formula import sql_to_sigma_formula
 from ossie_sigma.spec_keys import MODEL_LEVEL_SPEC_KEYS
 
@@ -103,7 +103,7 @@ def _emit_name(name: Optional[str], ext: dict[str, Any]) -> bool:
 def _resolve_formula(
     expression, dataset_alias: str, element_name: str, issues: list[ConverterIssue]
 ) -> Optional[str]:
-    """Prefer the native Sigma formula text; otherwise best-effort translate ANSI SQL.
+    """Prefer the native Sigma formula text; otherwise best-effort translate SQL.
 
     Returns ``None`` when no valid Sigma formula can be produced. `formula` is a
     required property of every Sigma column and metric, and the data model API
@@ -115,15 +115,15 @@ def _resolve_formula(
     if native is not None:
         return native
 
-    sql = ansi_sql_text(expression)
+    sql = sql_text(expression)
     if sql is not None:
         translated = sql_to_sigma_formula(sql, dataset_alias=dataset_alias)
         if translated is not None:
             return translated
-        detail = f"ANSI SQL expression {sql!r} has no Sigma formula equivalent"
+        detail = f"SQL expression {sql!r} has no Sigma formula equivalent"
     else:
-        dialects = ", ".join(d.dialect.value for d in expression.dialects) or "none"
-        detail = f"no SIGMA or ANSI_SQL dialect expression to translate from (have: {dialects})"
+        dialects = ", ".join(d.dialect for d in expression.dialects or []) or "none"
+        detail = f"no SIGMA, ANSI_SQL, or portable SQL expression to translate from (have: {dialects})"
 
     issues.append(
         ConverterIssue(
@@ -179,7 +179,7 @@ class OssieToSigmaConverter:
             ext = _sigma_ext(metric) or {}
             element_id = ext.get("element_id")
             if element_id is None:
-                sql = ansi_sql_text(metric.expression)
+                sql = sql_text(metric.expression)
                 owning_dataset = infer_single_dataset_qualifier(sql, dataset_names) if sql else None
                 element_id = dataset_element_id.get(owning_dataset) if owning_dataset else None
                 if element_id is None:

@@ -36,11 +36,14 @@ OSSIE_VERSION = "0.2.0.dev0"
 # Vendor id used for the `custom_extensions` stash.
 VENDOR = "OMNI"
 
-# Omni SQL is the SQL of the model's database connection, so there is no OMNI
-# entry in the Ossie dialect enum. Import emits ANSI_SQL; export prefers ANSI_SQL
+# Omni SQL is the SQL of the model's database connection, so there is no
+# Omni-specific Ossie dialect. Import emits ANSI_SQL; export prefers ANSI_SQL
 # and lets the caller prepend a warehouse dialect (e.g. SNOWFLAKE) that the
 # actual connection would accept.
 DIALECT_ANSI = "ANSI_SQL"
+
+# The portable Ossie dialect, also carried as the top-level `expression.sql`.
+DIALECT_PORTABLE = "OSSIE_SQL_2026"
 
 # Bump when the shape of a stashed `data` blob changes.
 STASH_VERSION = 1
@@ -271,18 +274,26 @@ def pick_expression(ossie_expression, preferred=None):
 
     Preference order: the caller-chosen warehouse dialect (Omni passes SQL through
     to the connection's database, so e.g. SNOWFLAKE SQL is valid on a Snowflake-
-    backed Omni model), then ANSI_SQL. Returns None if neither is present (the
-    caller warns and skips).
+    backed Omni model), then ANSI_SQL, then the portable form (the top-level
+    `sql`, which outranks an OSSIE_SQL_2026 `dialects` entry). Returns None if
+    none is present (the caller warns and skips).
     """
+    ossie_expression = ossie_expression or {}
     dialects = {
         d.get("dialect"): d.get("expression")
-        for d in (ossie_expression or {}).get("dialects") or []
+        for d in ossie_expression.get("dialects") or []
     }
+    if ossie_expression.get("sql") is not None:
+        portable = ossie_expression["sql"]
+    else:
+        portable = dialects.get(DIALECT_PORTABLE)
     expr = None
     if preferred:
         expr = dialects.get(preferred)
     if expr is None:
         expr = dialects.get(DIALECT_ANSI)
+    if expr is None:
+        expr = portable
     if expr is not None and not isinstance(expr, str):
         raise ConversionError(
             f"expression must be a string, got {type(expr).__name__}")

@@ -48,16 +48,20 @@ class Quick:
     @staticmethod
     def dialect_expression(dialect: str, sql: str) -> OssieDialectExpression:
         return OssieDialectExpression(
-            dialect=Quick.dialect(dialect),
+            dialect=dialect,
             expression=sql,
         )
 
     @staticmethod
-    def expression(dialects: list[tuple[str, str]]) -> OssieExpression:
+    def expression(
+        dialects: list[tuple[str, str]], *, sql: str | None = None
+    ) -> OssieExpression:
         return OssieExpression(
+            sql=sql,
             dialects=[
                 Quick.dialect_expression(dialect, sql) for dialect, sql in dialects
-            ],
+            ]
+            or None,
         )
 
     # TODO: add datatype

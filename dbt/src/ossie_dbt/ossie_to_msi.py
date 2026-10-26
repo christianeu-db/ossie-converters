@@ -511,7 +511,8 @@ class OssieToMSIConverter:
         Preference order: the converter's dialect, then OSSIE_SQL_2026, then the
         first entry available. OSSIE_SQL_2026 is Ossie's portable expression
         language, based on ANSI SQL:2003 Core, so it is treated as an ANSI_SQL
-        equivalent rather than left to the positional fallback.
+        equivalent rather than left to the positional fallback. The top-level
+        ``sql`` is the portable form and outranks an OSSIE_SQL_2026 entry.
         With ``sql_only``, non-SQL entries are excluded before applying that order.
 
         `dialects` has no `uniqueItems` constraint, so one dialect may appear
@@ -523,14 +524,23 @@ class OssieToMSIConverter:
         ossie_sql_expr: Optional[OssieDialectExpression] = None
         first_expr: Optional[OssieDialectExpression] = None
 
-        for dialect_expr in ossie_expr.dialects:
+        dialect_exprs = list(ossie_expr.dialects or [])
+        if ossie_expr.sql is not None:
+            portable = OssieDialectExpression(
+                dialect=OssieDialect.OSSIE_SQL_2026, expression=ossie_expr.sql
+            )
+            dialect_exprs = [portable] + [
+                d for d in dialect_exprs if d.dialect != OssieDialect.OSSIE_SQL_2026
+            ]
+
+        for dialect_expr in dialect_exprs:
             if sql_only and self._sql_dialect(dialect_expr.dialect) is None:
                 continue
             if first_expr is None:
                 first_expr = dialect_expr
-            if dialect_expr.dialect is self._dialect:
+            if dialect_expr.dialect == self._dialect:
                 return dialect_expr
-            if dialect_expr.dialect is OssieDialect.OSSIE_SQL_2026 and ossie_sql_expr is None:
+            if dialect_expr.dialect == OssieDialect.OSSIE_SQL_2026 and ossie_sql_expr is None:
                 ossie_sql_expr = dialect_expr
 
         if ossie_sql_expr is not None:
@@ -538,9 +548,14 @@ class OssieToMSIConverter:
         return first_expr
 
     @staticmethod
-    def _sql_dialect(dialect: OssieDialect) -> Optional[str]:
+    def _sql_dialect(dialect: str) -> Optional[str]:
+        # Dialects are free-form strings; one outside the well-known set is opaque.
+        try:
+            known = OssieDialect(dialect)
+        except ValueError:
+            return None
         # SQLGlot also registers non-SQL expression languages; those are not SQL fallbacks.
-        if dialect in {
+        if known in {
             OssieDialect.DAX,
             OssieDialect.MDX,
             OssieDialect.MAQL,
@@ -550,9 +565,9 @@ class OssieToMSIConverter:
         }:
             return None
         # The portable core's DATEADD/DATEDIFF unit-first syntax matches this reader.
-        if dialect in {OssieDialect.ANSI_SQL, OssieDialect.OSSIE_SQL_2026}:
+        if known in {OssieDialect.ANSI_SQL, OssieDialect.OSSIE_SQL_2026}:
             return "snowflake"
-        reader = dialect.value.lower()
+        reader = known.value.lower()
         try:
             sqlglot.Dialect.get_or_raise(reader)
         except ValueError:

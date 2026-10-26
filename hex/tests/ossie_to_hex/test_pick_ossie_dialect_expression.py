@@ -19,7 +19,7 @@ from collections.abc import Iterator
 
 import pytest
 from inline_snapshot import snapshot
-from ossie import OssieDialect
+from ossie import OssieDialect, OssieDialectExpression, OssieExpression
 
 from ossie_hex.ossie_to_hex.context import ExportContext
 from ossie_hex.ossie_to_hex.pick_ossie_dialect_expression import (
@@ -27,6 +27,11 @@ from ossie_hex.ossie_to_hex.pick_ossie_dialect_expression import (
 )
 from tests.ossie_to_hex.utils import Quick
 from tests.utils import problems_snapshot
+
+
+def _dialects(expression: OssieExpression) -> list[OssieDialectExpression]:
+    assert expression.dialects is not None
+    return expression.dialects
 
 
 @pytest.fixture
@@ -49,10 +54,10 @@ def test_picks_preferred_variant(ctx: ExportContext, preferred: str) -> None:
         ]
     )
 
-    result = pick_ossie_dialect_expression(expression.dialects, ctx=ctx)
+    result = pick_ossie_dialect_expression(expression, ctx=ctx)
 
     selected = next(
-        entry for entry in expression.dialects if entry.dialect == preferred
+        entry for entry in _dialects(expression) if entry.dialect == preferred
     )
     assert result is selected
     assert problems_snapshot(ctx.problems) == snapshot("")
@@ -68,11 +73,11 @@ def test_prefers_ansi_fallback_over_other_variants(ctx: ExportContext) -> None:
         ]
     )
 
-    result = pick_ossie_dialect_expression(expression.dialects, ctx=ctx)
+    result = pick_ossie_dialect_expression(expression, ctx=ctx)
 
-    assert result is expression.dialects[-1]
+    assert result is _dialects(expression)[-1]
     assert problems_snapshot(ctx.problems) == snapshot(
-        "[WARNING] Preferred dialect OssieDialect.SNOWFLAKE not found for expression; using fallback dialect OssieDialect.ANSI_SQL"
+        "[WARNING] Preferred dialect SNOWFLAKE not found for expression; using fallback dialect ANSI_SQL"
     )
 
 
@@ -81,9 +86,50 @@ def test_falls_back_to_first_variant_when_preferred_and_ansi_are_missing(
 ) -> None:
     expression = Quick.expression([("BIGQUERY", "foo.bar"), ("DAX", "SELECT FROM")])
 
-    result = pick_ossie_dialect_expression(expression.dialects, ctx=ctx)
+    result = pick_ossie_dialect_expression(expression, ctx=ctx)
 
-    assert result is expression.dialects[0]
+    assert result is _dialects(expression)[0]
     assert problems_snapshot(ctx.problems) == snapshot(
-        "[WARNING] Preferred dialect OssieDialect.ANSI_SQL not found for expression; using fallback dialect OssieDialect.BIGQUERY"
+        "[WARNING] Preferred dialect ANSI_SQL not found for expression; using fallback dialect BIGQUERY"
     )
+
+
+def test_portable_sql_alone_is_picked_as_an_ossie_sql_dialect_expression(
+    ctx: ExportContext,
+) -> None:
+    expression = Quick.expression([], sql="foo.bar")
+
+    result = pick_ossie_dialect_expression(expression, ctx=ctx)
+
+    assert result == OssieDialectExpression(
+        dialect="OSSIE_SQL_2026", expression="foo.bar"
+    )
+    assert problems_snapshot(ctx.problems) == snapshot(
+        "[WARNING] Preferred dialect ANSI_SQL not found for expression; using fallback dialect OSSIE_SQL_2026"
+    )
+
+
+def test_portable_sql_outranks_an_ossie_sql_dialect_entry(ctx: ExportContext) -> None:
+    expression = Quick.expression([("OSSIE_SQL_2026", "stale")], sql="portable")
+
+    result = pick_ossie_dialect_expression(expression, ctx=ctx)
+
+    assert result is not None
+    assert result.expression == "portable"
+
+
+def test_ansi_variant_is_preferred_over_portable_sql(ctx: ExportContext) -> None:
+    expression = Quick.expression([("ANSI_SQL", "ansi")], sql="portable")
+
+    result = pick_ossie_dialect_expression(expression, ctx=ctx)
+
+    assert result is not None
+    assert result.expression == "ansi"
+
+
+def test_unregistered_dialect_is_picked_as_a_fallback(ctx: ExportContext) -> None:
+    expression = Quick.expression([("FakeDB", "foo.bar")])
+
+    result = pick_ossie_dialect_expression(expression, ctx=ctx)
+
+    assert result is _dialects(expression)[0]

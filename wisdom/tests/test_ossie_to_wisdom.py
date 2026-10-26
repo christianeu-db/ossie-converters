@@ -436,3 +436,76 @@ def test_unusable_dialect_still_reports_missing_expression():
     assert [issue.element_name for issue in _issues_of(result, ConverterIssueType.MISSING_DIALECT_EXPRESSION)] == [
         "row_count"
     ]
+
+
+def test_portable_sql_only_field_and_metric_are_exported_without_missing_issue():
+    from ossie import OssieMetric
+
+    document = OssieDocument(
+        name="m",
+        datasets=[
+            OssieDataset(
+                name="orders",
+                source="analytics.sales.orders",
+                fields=[OssieField(name="region", expression=OssieExpression(sql="o_region"))],
+            )
+        ],
+        metrics=[OssieMetric(name="total_amount", expression=OssieExpression(sql="SUM(orders.amount)"))],
+    )
+    result = OssieToWisdomConverter().convert(document, exported_at="2026-07-10T00:00:00+00:00")
+    table = _table(result.output, "orders")
+    assert {f["name"]: f["expression"] for f in table.get("formulas", [])} == {"region": "o_region"}
+    assert {m["name"]: m["expression"] for m in table.get("measures", [])} == {
+        "total_amount": "SUM(orders.amount)"
+    }
+    assert _issues_of(result, ConverterIssueType.MISSING_DIALECT_EXPRESSION) == []
+
+
+def test_portable_sql_outranks_an_ossie_sql_2026_dialect_entry():
+    document = OssieDocument(
+        name="m",
+        datasets=[
+            OssieDataset(
+                name="orders",
+                source="analytics.sales.orders",
+                fields=[
+                    OssieField(
+                        name="region",
+                        expression=OssieExpression(
+                            sql="new_region",
+                            dialects=[
+                                OssieDialectExpression(dialect=OssieDialect.OSSIE_SQL_2026, expression="stale_region")
+                            ],
+                        ),
+                    )
+                ],
+            )
+        ],
+    )
+    result = OssieToWisdomConverter().convert(document, exported_at="2026-07-10T00:00:00+00:00")
+    formulas = {f["name"]: f["expression"] for f in _table(result.output, "orders").get("formulas", [])}
+    assert formulas == {"region": "new_region"}
+
+
+def test_unregistered_dialect_is_exported_as_a_last_resort_with_a_missing_issue():
+    document = OssieDocument(
+        name="m",
+        datasets=[
+            OssieDataset(
+                name="orders",
+                source="analytics.sales.orders",
+                fields=[
+                    OssieField(
+                        name="region",
+                        expression=OssieExpression(
+                            dialects=[OssieDialectExpression(dialect="FakeDB", expression="fake_region")]
+                        ),
+                    )
+                ],
+            )
+        ],
+    )
+    result = OssieToWisdomConverter().convert(document, exported_at="2026-07-10T00:00:00+00:00")
+    formulas = {f["name"]: f["expression"] for f in _table(result.output, "orders").get("formulas", [])}
+    assert formulas == {"region": "fake_region"}
+    assert [i.element_name for i in _issues_of(result, ConverterIssueType.MISSING_DIALECT_EXPRESSION)] == ["orders.region"]

@@ -150,9 +150,9 @@ class OssieToWisdomConverter:
 
     def _infer_dataset_dialect(self, dataset: OssieDataset) -> OssieDialect:
         for field in dataset.fields or []:
-            for entry in field.expression.dialects:
+            for entry in field.expression.dialects or []:
                 if entry.dialect in (OssieDialect.SNOWFLAKE, OssieDialect.DATABRICKS, OssieDialect.BIGQUERY):
-                    return entry.dialect
+                    return OssieDialect(entry.dialect)
         return OssieDialect.ANSI_SQL
 
     def _split_ai_context(self, model: OssieSemanticModel, issues: List[ConverterIssue]) -> Tuple[str, List[dict]]:
@@ -282,17 +282,21 @@ class OssieToWisdomConverter:
     def _pick_expression(
         self, expression: OssieExpression, dialect: OssieDialect, element_name: str, issues: List[ConverterIssue]
     ) -> str:
-        by_dialect = {entry.dialect: entry.expression for entry in expression.dialects}
+        by_dialect = {entry.dialect: entry.expression for entry in expression.dialects or []}
         if dialect in by_dialect:
             return by_dialect[dialect]
         if OssieDialect.ANSI_SQL in by_dialect:
             return by_dialect[OssieDialect.ANSI_SQL]
-        # OSSIE_SQL_2026 is ANSI-SQL-compatible; treat it as an ANSI_SQL-equivalent fallback.
+        # The portable form (the top-level `sql`, which outranks an OSSIE_SQL_2026 entry) is
+        # ANSI-SQL-compatible; treat it as an ANSI_SQL-equivalent fallback.
+        if expression.sql is not None:
+            return expression.sql
         if OssieDialect.OSSIE_SQL_2026 in by_dialect:
             return by_dialect[OssieDialect.OSSIE_SQL_2026]
         issues.append(
             ConverterIssue(issue_type=ConverterIssueType.MISSING_DIALECT_EXPRESSION, element_name=element_name)
         )
+        # An unregistered dialect is opaque; its text is the best remaining guess.
         return expression.dialects[0].expression
 
     def _is_bare_column(self, expression: str, name: str) -> bool:
@@ -309,7 +313,9 @@ class OssieToWisdomConverter:
                     ConverterIssue(issue_type=ConverterIssueType.AI_CONTEXT_DROPPED, element_name=metric.name)
                 )
             # Attach to a dataset first so the expression can be picked in that dataset's dialect.
-            reference_text = " ".join(entry.expression for entry in metric.expression.dialects)
+            reference_text = " ".join(
+                [metric.expression.sql or "", *(entry.expression for entry in metric.expression.dialects or [])]
+            )
             dataset_name = self._find_referenced_dataset(reference_text, dataset_names)
             if dataset_name is None:
                 dataset_name = dataset_names[0]

@@ -119,7 +119,10 @@ class DialectExpression(OssieObject):
 
 class Expression(OssieObject):
     """Multi-dialect expression carrier — same logical expression rendered in
-    one or more dialects (e.g. ANSI_SQL + SNOWFLAKE)."""
+    one or more dialects (e.g. ANSI_SQL + SNOWFLAKE). `sql` is the primary,
+    portable OSSIE_SQL_2026 form; when it is set it is authoritative over an
+    OSSIE_SQL_2026 entry in `dialects`."""
+    sql: str | None = None
     dialects: list[DialectExpression] = Field(default_factory=list)
 
 

@@ -283,6 +283,35 @@ def test_dialect_preference():
         "sql"] == "snow_col"
 
 
+def test_portable_sql_is_used_when_no_dialect_matches():
+    field = {"name": "x", "expression": {"sql": "portable_col"}}
+    files = export(minimal(datasets=[
+        {"name": "orders", "source": "db.sch.orders", "fields": [field]}]))
+    assert parse(files["views/orders.view.yaml"])["dimensions"]["x"][
+        "sql"] == "portable_col"
+
+
+def test_portable_sql_outranks_an_ossie_sql_dialect_entry_but_not_ansi():
+    portable = {"sql": "new", "dialects": [
+        {"dialect": "OSSIE_SQL_2026", "expression": "stale"}]}
+    with_ansi = {"sql": "new", "dialects": [
+        {"dialect": "ANSI_SQL", "expression": "ansi_col"}]}
+    files = export(minimal(datasets=[{
+        "name": "orders", "source": "db.sch.orders",
+        "fields": [{"name": "p", "expression": portable},
+                   {"name": "a", "expression": with_ansi}]}]))
+    dims = parse(files["views/orders.view.yaml"])["dimensions"]
+    assert dims["p"]["sql"] == "new"
+    assert dims["a"]["sql"] == "ansi_col"
+
+
+def test_unregistered_dialect_without_a_usable_form_warns_and_drops():
+    ossie = minimal(datasets=[
+        {"name": "orders", "source": "db.s.t",
+         "fields": [_field("x", dialect="FakeDB")]}])
+    assert any("no usable" in m for m in _warnings_of(ossie))
+
+
 def test_names_are_sanitized():
     files = export(dump_yaml({"version": "0.2.0.dev0", "name": "My Model",
         "datasets": [{"name": "Order Items", "source": "db.sch.t",

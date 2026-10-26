@@ -199,8 +199,8 @@ skipped — and the spec's table decides what it matches: `orders."AMOUNT"` is t
 `amount` (force-matched to the normalized case), while `orders."Amount"` is not, and
 stays a raw quoted column.
 
-**Expression dialects**: Cube SQL is the SQL of the model's data source, and the
-Ossie dialect enum has no `CUBE` entry. Pass `--source-dialect ANSI_SQL|SNOWFLAKE|DATABRICKS|BIGQUERY`
+**Expression dialects**: Cube SQL is the SQL of the model's data source, so there
+is no `CUBE` dialect. Pass `--source-dialect ANSI_SQL|SNOWFLAKE|DATABRICKS|BIGQUERY`
 on import (including `--project`) to parse source SQL in that dialect, qualify metric
 columns without treating date units or type arguments as columns, and label generated
 expressions correctly. For example, BigQuery's `` `order-id` `` remains backtick-quoted

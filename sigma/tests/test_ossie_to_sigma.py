@@ -232,6 +232,51 @@ def test_model_level_metadata_round_trips_through_ossie_and_back():
         assert reconstructed[key] == spec[key]
 
 
+def _convert_single_field(expression: OssieExpression):
+    document = OssieDocument(
+        name="m",
+        datasets=[
+            OssieDataset(
+                name="orders",
+                source="db.public.orders",
+                fields=[OssieField(name="amount", expression=expression)],
+            )
+        ],
+    )
+    result = OssieToSigmaConverter().convert(document)
+    return result.output["pages"][0]["elements"][0], result.issues
+
+
+def test_portable_only_expression_is_translated_to_a_sigma_formula():
+    element, issues = _convert_single_field(OssieExpression(sql="amount"))
+
+    assert len(element["columns"]) == 1
+    assert all(c.get("formula") for c in element["columns"])
+    assert not issues
+
+
+def test_ansi_sql_is_preferred_over_the_portable_form():
+    element, _ = _convert_single_field(
+        OssieExpression(
+            sql="portable_col",
+            dialects=[OssieDialectExpression(dialect=OssieDialect.ANSI_SQL, expression="ansi_col")],
+        )
+    )
+
+    assert "ansi_col" in element["columns"][0]["formula"]
+
+
+@pytest.mark.parametrize("dialect", ["FakeDB", "SNOWFLKE"])
+def test_unregistered_dialect_omits_the_column_with_an_issue_instead_of_failing(dialect):
+    element, issues = _convert_single_field(
+        OssieExpression(dialects=[OssieDialectExpression(dialect=dialect, expression="whatever")])
+    )
+
+    assert not element.get("columns")
+    [issue] = [i for i in issues if i.issue_type is ConverterIssueType.EXPRESSION_NOT_TRANSLATABLE]
+    assert dialect in issue.detail
+
+
 def test_untranslatable_expression_omits_the_column_instead_of_faking_a_formula():
     """`formula` is required on every Sigma column and the data model API validates the
     whole document before applying any of it, so a placeholder would fail the entire

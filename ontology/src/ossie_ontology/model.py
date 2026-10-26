@@ -458,6 +458,9 @@ class MappingFormulaFactory:
 # Semantic model (datasets, join paths, metrics)
 # ---------------------------------------------------------------------------
 
+PORTABLE_DIALECT = "OSSIE_SQL_2026"
+
+
 @dataclass
 class DialectExpression:
     dialect: str
@@ -467,10 +470,14 @@ class DialectExpression:
 @dataclass
 class DialectExpressionSet:
     """Runtime equivalent of spec.Expression — same logical expression rendered
-    in one or more dialects."""
+    in one or more dialects. `sql` is the primary, portable OSSIE_SQL_2026 form."""
+    sql: str | None = None
     dialects: list[DialectExpression] = field(default_factory=list)
 
     def by_dialect(self, dialect: str) -> DialectExpression | None:
+        # The top-level `sql` is authoritative over an OSSIE_SQL_2026 entry.
+        if dialect == PORTABLE_DIALECT and self.sql is not None:
+            return DialectExpression(dialect=PORTABLE_DIALECT, expression=self.sql)
         for d in self.dialects:
             if d.dialect == dialect:
                 return d
@@ -478,6 +485,8 @@ class DialectExpressionSet:
 
     @property
     def primary(self) -> DialectExpression | None:
+        if self.sql is not None:
+            return DialectExpression(dialect=PORTABLE_DIALECT, expression=self.sql)
         return self.dialects[0] if self.dialects else None
 
 

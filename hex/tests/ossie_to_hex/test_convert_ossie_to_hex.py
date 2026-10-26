@@ -159,6 +159,71 @@ def test_selected_dialect_is_used_when_loading_and_converting(
         assert problems_snapshot(problems) == snapshot("")
 
 
+_PORTABLE_ONLY_MODEL = """\
+version: 0.2.0.dev0
+name: foo
+datasets:
+  - name: bar
+    source: public.bar
+    fields:
+      - name: amount
+        datatype: Integer
+        expression:
+          sql: amount
+metrics:
+  - name: total
+    datatype: Integer
+    expression:
+      sql: SUM(bar.amount)
+"""
+
+
+def test_portable_only_expressions_are_converted(tmp_path: Path) -> None:
+    source = tmp_path / "model.yml"
+    source.write_text(_PORTABLE_ONLY_MODEL, encoding="utf-8")
+
+    project, problems = convert_ossie_to_hex(source, dialect="SNOWFLAKE")
+
+    assert project is not None
+    model = project.resources[0]
+    assert isinstance(model, HexModel)
+    assert (model.dimensions[0].expr_sql, model.measures[0].func_sql) == snapshot(
+        ("amount", "SUM(${amount})")
+    )
+    assert problems_snapshot(problems) == snapshot("""\
+[WARNING] Preferred dialect SNOWFLAKE not found for expression; using fallback dialect OSSIE_SQL_2026
+
+[WARNING] Preferred dialect SNOWFLAKE not found for expression; using fallback dialect OSSIE_SQL_2026\
+""")
+
+
+@pytest.mark.parametrize("unregistered", ["DB_DIALECT", "SNOWFLKE"])
+def test_unregistered_dialect_is_opaque_and_does_not_fail_the_export(
+    tmp_path: Path, unregistered: str
+) -> None:
+    dataset = Quick.dataset(
+        "bar", "public.bar", [("amount", "Integer", [(unregistered, "amount")])]
+    )
+    metric = Quick.metric("total", "Integer", [(unregistered, "SUM(bar.amount)")])
+    semantic_model = Quick.semantic_model("foo", [dataset], [metric], [])
+    source = tmp_path / "model.yml"
+    source.write_text(
+        dump_yaml(semantic_model.model_dump(mode="json", exclude_none=True)),
+        encoding="utf-8",
+    )
+
+    project, problems = convert_ossie_to_hex(source, dialect="SNOWFLAKE")
+
+    assert project is not None
+    model = project.resources[0]
+    assert isinstance(model, HexModel)
+    assert (model.dimensions[0].expr_sql, model.measures[0].func_sql) == snapshot(
+        ("amount", "SUM(${amount})")
+    )
+    # One fallback warning each for the field and the metric.
+    assert problems_snapshot(problems).count(f"fallback dialect {unregistered}") == 2
+
+
 def test_convert_tpcds() -> None:
     hex_project, problems = convert_ossie_to_hex(
         TPCDS,

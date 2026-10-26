@@ -15,24 +15,46 @@
 # specific language governing permissions and limitations
 # under the License.
 
-from ossie import OssieDialect, OssieDialectExpression
+from ossie import OssieDialect, OssieDialectExpression, OssieExpression
 
 from .context import ExportContext
 
 
+def list_ossie_dialect_expressions(
+    ossie_expression: OssieExpression,
+) -> list[OssieDialectExpression]:
+    """List the dialect expressions of an Ossie expression.
+
+    The portable `sql` is listed first as an `OSSIE_SQL_2026` dialect expression.
+    It outranks an `OSSIE_SQL_2026` entry in `dialects`, so that entry is left out.
+    """
+    dialect_expressions = list(ossie_expression.dialects or [])
+    if ossie_expression.sql is not None:
+        portable = OssieDialectExpression(
+            dialect=OssieDialect.OSSIE_SQL_2026, expression=ossie_expression.sql
+        )
+        dialect_expressions = [portable] + [
+            entry
+            for entry in dialect_expressions
+            if entry.dialect != OssieDialect.OSSIE_SQL_2026
+        ]
+    return dialect_expressions
+
+
 def pick_ossie_dialect_expression(
-    ossie_dialect_expressions: list[OssieDialectExpression],
+    ossie_expression: OssieExpression,
     *,
     ctx: ExportContext,
 ) -> OssieDialectExpression | None:
-    """Pick an Ossie dialect expression from a list of Ossie dialect expressions.
+    """Pick a dialect expression from an Ossie expression.
 
     Prefers to pick the current dialect, then falls back to ANSI SQL, then the first in the list.
+    The portable `sql` counts as the first in the list.
 
     Returns a dialect expression or None if no fallback is found.
     """
     fallback: OssieDialectExpression | None = None
-    for entry in ossie_dialect_expressions:
+    for entry in list_ossie_dialect_expressions(ossie_expression):
         if entry.dialect == ctx.ossie_dialect:
             return entry
         # fallback preference: (1) ansi sql, (2) first in the list
@@ -41,10 +63,10 @@ def pick_ossie_dialect_expression(
     if ctx.current_phase_name == "load":
         if fallback is not None:
             ctx.warn(
-                f"Preferred dialect {ctx.ossie_dialect} not found for expression; using fallback dialect {fallback.dialect}"
+                f"Preferred dialect {ctx.ossie_dialect.value} not found for expression; using fallback dialect {fallback.dialect}"
             )
         else:
             ctx.error(
-                f"Preferred dialect {ctx.ossie_dialect} not found for expression and no fallback dialect found"
+                f"Preferred dialect {ctx.ossie_dialect.value} not found for expression and no fallback dialect found"
             )
     return fallback

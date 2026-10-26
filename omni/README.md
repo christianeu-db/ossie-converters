@@ -137,10 +137,11 @@ raw-SQL), and files with no Ossie form (query views, extends-only views,
 unrecognized files).
 
 **Expression dialects**: Omni SQL is the SQL of the model's database
-connection, and the Ossie dialect enum has no `OMNI` entry -- so import emits
-`ANSI_SQL` expressions, and export prefers `ANSI_SQL` with `--dialect`
-prepending a warehouse dialect (e.g. `SNOWFLAKE` for a Snowflake-backed Omni
-model). A field/metric with neither is dropped with a warning.
+connection, so there is no `OMNI` dialect -- import emits `ANSI_SQL`
+expressions, and export prefers `ANSI_SQL` with `--dialect` prepending a
+warehouse dialect (e.g. `SNOWFLAKE` for a Snowflake-backed Omni model). Failing
+both, export falls back to the portable top-level `sql`. A field/metric with
+none of these is dropped with a warning.
 
 ## Requirements
 

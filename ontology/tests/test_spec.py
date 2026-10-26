@@ -24,7 +24,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ossie_ontology.spec import DatasetField, Metric, SemanticModel
+from ossie_ontology.converter.ossie_to_spec.converter import (
+    _convert_expression as model_expression_to_spec,
+)
+from ossie_ontology.converter.spec_to_ossie.converter import (
+    _convert_expression as spec_expression_to_model,
+)
+from ossie_ontology.spec import DatasetField, Expression, Metric, SemanticModel
 
 # tests/ -> ontology -> <repo root>
 _EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "ossie" / "examples"
@@ -46,6 +52,40 @@ def test_metric_accepts_datatype():
         "datatype": "Decimal",
     })
     assert metric.datatype == "Decimal"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"sql": "SUM(ss_sales_price)"},
+        {
+            "sql": "SUM(ss_sales_price)",
+            "dialects": [{"dialect": "SNOWFLAKE", "expression": "SUM(ss_sales_price)"}],
+        },
+        {"dialects": [{"dialect": "FakeDB", "expression": "SUM(ss_sales_price)"}]},
+    ],
+    ids=["portable-only", "portable-and-dialect", "unregistered-dialect"],
+)
+def test_expression_round_trips_through_the_model(raw):
+    spec = Expression.model_validate(raw)
+
+    restored = model_expression_to_spec(spec_expression_to_model(spec))
+
+    assert restored.model_dump(exclude_none=True, exclude_defaults=True) == raw
+
+
+def test_portable_sql_is_authoritative_over_an_ossie_sql_dialect_entry():
+    expression = spec_expression_to_model(
+        Expression.model_validate(
+            {
+                "sql": "a + b",
+                "dialects": [{"dialect": "OSSIE_SQL_2026", "expression": "stale"}],
+            }
+        )
+    )
+
+    assert expression.by_dialect("OSSIE_SQL_2026").expression == "a + b"
+    assert expression.primary.expression == "a + b"
 
 
 def test_tpcds_example_parses():
